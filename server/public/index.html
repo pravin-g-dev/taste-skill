@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Taste · Review Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header>
+    <a class="logo" href="/">
+      <span class="logo-icon">✦</span>
+      Taste
+    </a>
+
+    <div class="stats">
+      <div class="stat">
+        <span class="badge badge-pending" id="stat-pending">0</span>
+        pending
+      </div>
+      <div class="stat">
+        <span class="badge badge-accepted" id="stat-accepted">0</span>
+        accepted
+      </div>
+      <div class="stat server-status">
+        <span class="dot"></span>
+        localhost:3247
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <!-- Left: Review Feed -->
+    <div class="feed-panel">
+      <div class="feed-header">
+        <span class="feed-title">Suggestions</span>
+        <div class="filter-tabs">
+          <button class="tab active" data-view="pending">Pending</button>
+          <button class="tab" data-view="accepted">Accepted</button>
+          <button class="tab" data-view="rejected">Rejected</button>
+        </div>
+      </div>
+      <div id="feed"></div>
+    </div>
+
+    <!-- Right: Profile -->
+    <div class="profile-panel">
+      <div class="profile-header">
+        <span class="profile-title">Your Taste Profile</span>
+      </div>
+      <div id="profile-content"></div>
+    </div>
+
+  </div>
+
+  <div id="toast-container"></div>
+  <script src="app.js"></script>
+</body>
+</html>

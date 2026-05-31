@@ -1,0 +1,29 @@
+{
+  "name": "taste-skill",
+  "version": "1.0.0",
+  "description": "Self-hosted personalized coding preferences skill for Claude Code, Codex, and any skills-compatible AI agent",
+  "bin": {
+    "taste-skill": "./bin/taste-skill.js"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "TASTE_PORT=3247 node server/index.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.0",
+    "uuid": "^11.1.1"
+  },
+  "keywords": [
+    "claude-code",
+    "codex",
+    "ai-agent",
+    "skill",
+    "coding-preferences",
+    "taste"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  }
+}
