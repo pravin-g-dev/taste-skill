@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "taste": {
+      "source": "pravin-g-dev/taste-skill",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "60e687579929dde311ae4b09a9b947aa0cd679ba717096405d5aa59b4ecd4989"
+    }
+  }
+}

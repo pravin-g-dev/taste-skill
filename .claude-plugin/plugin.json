@@ -1,0 +1,13 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "taste-skill",
+  "version": "1.0.0",
+  "description": "Applies your personalized coding preferences from .taste/profile.md. Supports guided training sessions.",
+  "author": {
+    "name": "pravin-g-dev",
+    "email": "praving@gallabox.com"
+  },
+  "skills": [
+    "./"
+  ]
+}

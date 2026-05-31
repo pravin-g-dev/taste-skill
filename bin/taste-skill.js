@@ -2,7 +2,7 @@
 const [,, cmd, ...args] = process.argv;
 
 const commands = {
-  serve, init, status, help,
+  serve, init, status, on, off, help,
 };
 
 (commands[cmd] || help)();
@@ -162,6 +162,30 @@ function init() {
   }
 }
 
+function on() {
+  const fs = require('fs');
+  const path = require('path');
+  const global = args.includes('--global');
+  const dir = global ? path.join(process.env.HOME, '.taste') : path.join(process.cwd(), '.taste');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'enabled'), '');
+  console.log(`Taste enabled${global ? ' globally' : ' for this project'}.`);
+  console.log('Claude will auto-apply your profile at every session start.');
+}
+
+function off() {
+  const fs = require('fs');
+  const path = require('path');
+  const global = args.includes('--global');
+  const flag = path.join(global ? process.env.HOME : process.cwd(), '.taste', 'enabled');
+  if (fs.existsSync(flag)) {
+    fs.unlinkSync(flag);
+    console.log(`Taste disabled${global ? ' globally' : ' for this project'}.`);
+  } else {
+    console.log('Taste is already off.');
+  }
+}
+
 function status() {
   const http = require('http');
   const port = process.env.TASTE_PORT || '3247';
@@ -191,13 +215,16 @@ function help() {
   Commands:
     serve [--port N]   Start review server (default port 3247)
     init               Analyze codebase and generate .taste/profile.md
+    on [--global]      Enable auto-apply for this project (or globally)
+    off [--global]     Disable auto-apply
     status             Check if server is running and show pending count
 
   Usage with Claude Code:
     1. npx taste-skill init          (generate initial profile)
-    2. npx taste-skill serve         (start review server)
-    3. Open http://localhost:3247    (review suggestions)
-    4. In Claude Code: "taste train" (run guided training session)
+    2. npx taste-skill on            (enable auto-apply for this project)
+    3. npx taste-skill serve         (start review server)
+    4. Open http://localhost:3247    (review suggestions)
+    5. In Claude Code: "taste train" (run guided training session)
   `);
 }
 

@@ -13,16 +13,28 @@ Apply this skill on every task that involves writing, reviewing, or refactoring 
 
 ---
 
+## Toggle
+
+- Enable for a project: `npx taste-skill on`
+- Enable globally: `npx taste-skill on --global`
+- Disable: `npx taste-skill off`
+
+When enabled, a `SessionStart` hook automatically injects the profile into every Claude Code session — no manual invocation needed.
+
+---
+
 ## Step 1 — Load Profile
 
-At the start of every coding task:
+When the profile is injected via the SessionStart hook, it is already active — skip to Step 2.
+
+If the profile was NOT auto-injected (hook not set up yet):
 
 1. Check if `.taste/profile.md` exists in the project root.
 2. If it exists, read it in full and internalize every rule as a hard constraint.
 3. If it does not exist, tell the user once:
    ```
    Taste profile not found. Run: npx taste-skill init
-   Then start the review server: npx taste-skill serve
+   Then enable auto-apply: npx taste-skill on
    ```
 4. Check if `.taste/rejected.md` exists. Never suggest any rule listed there.
 
@@ -47,7 +59,7 @@ Key sections to honour:
 When you make a style/pattern decision **not already covered** by the profile:
 
 1. Make the decision (proceed with the task — do not block).
-2. Immediately after, POST the suggestion to the review server:
+2. Immediately POST the suggestion — no confirmation, no approval, fire and forget:
 
 ```
 POST http://localhost:3247/api/suggest
@@ -63,11 +75,13 @@ Content-Type: application/json
 }
 ```
 
-3. If the server is unreachable, silently skip the POST (do not stop the task).
-4. After posting, add a one-line note in your response:
+3. If the server is unreachable, silently append to `.taste/pending-suggestions.md`:
    ```
-   → Taste suggestion sent to http://localhost:3247
+   ## <section> — <concise rule>
+   - Example: `<one-line code example>`
+   - Source: <brief context>
    ```
+4. Do NOT notify the user. Do NOT ask for approval. Send silently every time.
 
 ---
 
@@ -76,8 +90,10 @@ Content-Type: application/json
 When the user corrects your code mid-task (e.g. "use named exports", "don't use async/await here"):
 
 1. Apply the correction immediately.
-2. POST it with `"trigger": "explicit-correction"` and `"source": "User corrected: '<their words>'"`.
-3. Tell the user: `→ Locked as a taste suggestion at http://localhost:3247`
+2. Silently POST it — no approval needed:
+   - `"trigger": "explicit-correction"`
+   - `"source": "User corrected: '<their words>'"`
+3. If server unreachable, silently append to `.taste/pending-suggestions.md`.
 
 ---
 
@@ -118,7 +134,7 @@ c) **Show a binary choice** for ambiguous style:
    B:  function Foo() { return <div /> }
    ```
 
-**For each answer**: POST to `/api/suggest` with `"trigger": "training-session"` immediately.
+**For each answer**: POST to `/api/suggest` with `"trigger": "training-session"` immediately — no approval, no confirmation.
 
 **End of session:**
 ```
