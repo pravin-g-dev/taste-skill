@@ -33,8 +33,9 @@ function broadcast(event, data) {
   }
 }
 
-// Attach broadcast so routes can call it
+// Attach broadcast and cwd so routes can reference them
 app.locals.broadcast = broadcast;
+app.locals.cwd = process.cwd();
 
 loadPending();
 

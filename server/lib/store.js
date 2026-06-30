@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+const { appendToTargetFile } = require('./targets');
 
 const tastePath = () => process.env.TASTE_PATH || path.join(process.cwd(), '.taste');
 
@@ -40,6 +41,11 @@ function addSuggestion(data) {
     example: data.example || null,
     trigger: data.trigger || 'passive',
     source: data.source || null,
+    target: data.target || '',
+    targetType: data.targetType || 'taste-profile',
+    cwd: data.cwd || null,
+    source_type: data.source_type || 'manual',
+    contextSkill: data.contextSkill || null,
   };
   pending.push(suggestion);
   savePending();
@@ -70,22 +76,9 @@ function readRejected() {
   return fs.readFileSync(file, 'utf8');
 }
 
+// Kept for backward compatibility; routes through appendToTargetFile
 function appendToProfile(suggestion) {
-  const dir = ensureDir();
-  const file = path.join(dir, 'profile.md');
-  const line = buildProfileLine(suggestion);
-  if (!fs.existsSync(file)) {
-    fs.writeFileSync(file, `# Taste Profile\n\n## ${suggestion.section}\n${line}\n`);
-    return;
-  }
-  const content = fs.readFileSync(file, 'utf8');
-  const sectionHeader = `## ${suggestion.section}`;
-  if (content.includes(sectionHeader)) {
-    const updated = content.replace(sectionHeader, `${sectionHeader}\n${line}`);
-    fs.writeFileSync(file, updated);
-  } else {
-    fs.appendFileSync(file, `\n## ${suggestion.section}\n${line}\n`);
-  }
+  appendToTargetFile({ ...suggestion, targetType: suggestion.targetType || 'taste-profile' });
 }
 
 function appendToRejected(suggestion) {
@@ -95,10 +88,4 @@ function appendToRejected(suggestion) {
   fs.appendFileSync(file, line);
 }
 
-function buildProfileLine(suggestion) {
-  let line = `- ${suggestion.rule}`;
-  if (suggestion.example) line += `\n  - Example: \`${suggestion.example}\``;
-  return line;
-}
-
-module.exports = { loadPending, addSuggestion, getPending, removePending, readProfile, readRejected, appendToProfile, appendToRejected };
+module.exports = { loadPending, addSuggestion, getPending, removePending, readProfile, readRejected, appendToProfile, appendToTargetFile, appendToRejected };

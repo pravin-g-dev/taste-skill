@@ -1,5 +1,5 @@
 const { Router } = require('express');
-const { getPending, removePending, appendToProfile, appendToRejected } = require('../lib/store');
+const { getPending, removePending, appendToTargetFile, appendToRejected } = require('../lib/store');
 
 const router = Router();
 
@@ -10,9 +10,18 @@ router.get('/pending', (req, res) => {
 router.post('/accept/:id', (req, res) => {
   const suggestion = removePending(req.params.id);
   if (!suggestion) return res.status(404).json({ error: 'Suggestion not found' });
-  appendToProfile(suggestion);
+
+  // Allow UI to override target at accept-time
+  const { overrideTarget, overrideTargetType } = req.body || {};
+  const finalSuggestion = {
+    ...suggestion,
+    ...(overrideTarget !== undefined && { target: overrideTarget }),
+    ...(overrideTargetType !== undefined && { targetType: overrideTargetType }),
+  };
+
+  appendToTargetFile(finalSuggestion);
   req.app.locals.broadcast?.('accepted', { id: suggestion.id });
-  res.json({ status: 'accepted', suggestion });
+  res.json({ status: 'accepted', suggestion: finalSuggestion });
 });
 
 router.post('/discard/:id', (req, res) => {

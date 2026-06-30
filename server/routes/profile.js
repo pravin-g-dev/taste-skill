@@ -1,6 +1,7 @@
 const { Router } = require('express');
 const { readProfile, readRejected } = require('../lib/store');
 const { parseProfile } = require('../lib/parser');
+const { getAvailableTargets } = require('../lib/targets');
 
 const router = Router();
 
@@ -19,6 +20,11 @@ router.get('/profile/raw', (req, res) => {
 router.get('/rejected', (req, res) => {
   const raw = readRejected();
   res.json({ raw: raw || '', exists: !!raw });
+});
+
+router.get('/targets', (req, res) => {
+  const cwd = req.app.locals.cwd || process.cwd();
+  res.json({ targets: getAvailableTargets(cwd) });
 });
 
 module.exports = router;

@@ -187,6 +187,19 @@ header {
   border-radius: 4px;
 }
 
+.target-badge {
+  font-size: 0.7rem;
+  color: var(--yellow);
+  background: rgba(245,158,11,.12);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.target-badge-warn {
+  color: var(--red);
+  background: rgba(239,68,68,.12);
+}
+
 .card-rule {
   font-size: 0.95rem;
   font-weight: 500;
@@ -257,6 +270,65 @@ header {
   font-size: 0.75rem;
 }
 .btn-skip:hover { background: var(--surface2); color: var(--text); }
+
+/* ── Split Accept Button ── */
+.btn-accept-split {
+  flex: 1;
+  display: flex;
+  gap: 0;
+  position: relative;
+}
+
+.btn-accept-main {
+  flex: 1;
+  border-radius: 6px 0 0 6px;
+  border-right: none;
+}
+
+.btn-accept-arrow {
+  flex: 0;
+  padding: 7px 9px;
+  border-radius: 0 6px 6px 0;
+  border-left: 1px solid rgba(34,197,94,.25);
+  font-size: 0.65rem;
+}
+
+/* ── Target Dropdown Menu ── */
+.target-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 220px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  z-index: 50;
+  box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  animation: fadeIn .1s ease;
+}
+
+.target-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  border-radius: 5px;
+  font-size: 0.78rem;
+  color: var(--text);
+  cursor: pointer;
+  transition: background .1s;
+}
+.target-option:hover { background: rgba(108,122,255,.1); }
+.target-option-missing { color: var(--text-muted); }
+
+.target-missing-badge {
+  font-size: 0.65rem;
+  background: rgba(245,158,11,.15);
+  color: var(--yellow);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
 
 .empty-state {
   text-align: center;

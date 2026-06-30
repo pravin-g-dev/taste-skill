@@ -4,6 +4,7 @@ const state = {
   pending: [],
   profile: {},
   rejected: '',
+  targets: [],
   view: 'pending', // pending | accepted | rejected
 };
 
@@ -28,10 +29,22 @@ async function loadRejected() {
   const data = await api('GET', '/api/rejected');
   state.rejected = data.raw || '';
 }
+async function loadTargets() {
+  try {
+    const data = await api('GET', '/api/targets');
+    state.targets = data.targets || [];
+  } catch {
+    state.targets = [];
+  }
+}
 
-async function accept(id) {
-  await api('POST', `/api/accept/${id}`);
-  toast('Rule added to your taste profile ✓', 'success');
+async function accept(id, overrideTarget, overrideTargetType) {
+  const body = {};
+  if (overrideTarget !== undefined) body.overrideTarget = overrideTarget;
+  if (overrideTargetType !== undefined) body.overrideTargetType = overrideTargetType;
+  await api('POST', `/api/accept/${id}`, body);
+  const label = overrideTarget ? targetBasename(overrideTarget) : 'taste profile';
+  toast(`Rule added to ${label} ✓`, 'success');
   await Promise.all([loadPending(), loadProfile()]);
   render();
   updateStats();
@@ -92,28 +105,95 @@ function renderFeed() {
   }
 }
 
+function targetLabel(s) {
+  if (!s.targetType || s.targetType === 'taste-profile') return 'profile.md';
+  if (s.targetType === 'root-claude-md') return 'CLAUDE.md';
+  if (s.target) return targetBasename(s.target);
+  if (s.targetType === 'skill-md') return 'skill (pick target)';
+  return s.targetType;
+}
+
+function targetBasename(p) {
+  if (!p) return '';
+  return p.split('/').pop() || p;
+}
+
+function sourceTypeLabel(s) {
+  const map = {
+    'stop-hook': 'auto',
+    'pr-review': 'PR',
+    'manual': 'manual',
+    'training': 'training',
+  };
+  return map[s.source_type] || s.source_type || '';
+}
+
 function cardHTML(s) {
   const triggerLabel = {
     'passive': 'passive',
     'explicit-correction': 'correction',
     'training-session': 'training',
+    'stop-hook': 'auto',
+    'pr-review': 'PR review',
   }[s.trigger] || s.trigger;
+
+  const needsTargetPick = s.targetType === 'skill-md' && !s.target;
+  const targetBadge = `<span class="target-badge${needsTargetPick ? ' target-badge-warn' : ''}">${escHtml(targetLabel(s))}</span>`;
 
   return `
     <div class="card" id="card-${s.id}">
       <div class="card-meta">
         <span class="section-badge">${s.section}${s.subsection ? ' / ' + s.subsection : ''}</span>
         <span class="trigger-badge">${triggerLabel}</span>
+        ${targetBadge}
       </div>
       <div class="card-rule">${escHtml(s.rule)}</div>
       ${s.example ? `<div class="card-example">${escHtml(s.example)}</div>` : ''}
       ${s.source  ? `<div class="card-source">"${escHtml(s.source)}"</div>` : ''}
       <div class="card-actions">
-        <button class="btn btn-accept" onclick="handleAccept('${s.id}')">✓ Accept</button>
+        <div class="btn-accept-split">
+          <button class="btn btn-accept btn-accept-main" onclick="handleAccept('${s.id}')">✓ Accept</button>
+          <button class="btn btn-accept btn-accept-arrow" onclick="toggleTargetMenu('${s.id}', event)" title="Accept to a specific file">▾</button>
+        </div>
+        <div class="target-menu" id="target-menu-${s.id}" style="display:none"></div>
         <button class="btn btn-discard" onclick="handleDiscard('${s.id}')">✗ Discard</button>
         <button class="btn btn-skip" onclick="handleSkip('${s.id}')">Skip</button>
       </div>
     </div>`;
+}
+
+function toggleTargetMenu(id, e) {
+  e.stopPropagation();
+  const menu = document.getElementById(`target-menu-${id}`);
+  if (!menu) return;
+
+  // Close all other open menus
+  document.querySelectorAll('.target-menu').forEach(m => { if (m !== menu) m.style.display = 'none'; });
+
+  if (menu.style.display !== 'none') {
+    menu.style.display = 'none';
+    return;
+  }
+
+  const targets = state.targets.length ? state.targets : [
+    { type: 'taste-profile', label: 'Taste Profile (.taste/profile.md)', path: '', exists: true },
+    { type: 'root-claude-md', label: 'CLAUDE.md (project root)', path: '', exists: false },
+  ];
+
+  menu.innerHTML = targets.map(t => `
+    <div class="target-option${!t.exists ? ' target-option-missing' : ''}"
+         onclick="acceptToTarget('${id}', '${escHtml(t.path)}', '${t.type}')">
+      <span>${escHtml(t.label)}</span>
+      ${!t.exists ? '<span class="target-missing-badge">create</span>' : ''}
+    </div>`).join('');
+
+  menu.style.display = 'block';
+}
+
+async function acceptToTarget(id, path, type) {
+  const menu = document.getElementById(`target-menu-${id}`);
+  if (menu) menu.style.display = 'none';
+  fadeCard(id, () => accept(id, path, type));
 }
 
 function renderProfile() {
@@ -180,7 +260,7 @@ function connectSSE() {
     state.pending.push(s);
     updateStats();
     if (state.view === 'pending') renderFeed();
-    toast('New taste suggestion from Claude', 'info');
+    toast('New suggestion from Claude', 'info');
   });
   es.addEventListener('accepted',  () => refresh());
   es.addEventListener('discarded', () => refresh());
@@ -210,10 +290,15 @@ function toast(msg, type = 'info') {
   setTimeout(() => el.remove(), 3000);
 }
 
+// Close target menus on outside click
+document.addEventListener('click', () => {
+  document.querySelectorAll('.target-menu').forEach(m => m.style.display = 'none');
+});
+
 // ── Boot ─────────────────────────────────────────────────────
 
 (async function init() {
-  await Promise.all([loadPending(), loadProfile(), loadRejected()]);
+  await Promise.all([loadPending(), loadProfile(), loadRejected(), loadTargets()]);
   render();
   updateStats();
   connectSSE();
