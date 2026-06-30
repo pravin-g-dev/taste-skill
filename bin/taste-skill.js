@@ -2,7 +2,10 @@
 const [,, cmd, ...args] = process.argv;
 
 const commands = {
-  serve, init, status, on, off, help,
+  serve, init, status, on, off,
+  'review-pr': reviewPr,
+  targets, 'init-claude-md': initClaudeMd, sync,
+  help,
 };
 
 (commands[cmd] || help)();
@@ -32,7 +35,6 @@ function init() {
 
   const detected = {};
 
-  // Detect language/framework
   const pkg = readJSON(path.join(process.cwd(), 'package.json'));
   if (pkg) {
     detected.framework = detectFramework(pkg);
@@ -45,7 +47,6 @@ function init() {
     detected.language = 'Unknown';
   }
 
-  // Detect style from source files
   const sample = sampleSourceFiles();
   detected.quotes = detectQuotes(sample);
   detected.indent = detectIndent(sample);
@@ -165,25 +166,84 @@ function init() {
 function on() {
   const fs = require('fs');
   const path = require('path');
-  const global = args.includes('--global');
-  const dir = global ? path.join(process.env.HOME, '.taste') : path.join(process.cwd(), '.taste');
+  const isGlobal = args.includes('--global');
+  const noStopHook = args.includes('--no-stop-hook');
+  const dir = isGlobal ? path.join(process.env.HOME, '.taste') : path.join(process.cwd(), '.taste');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'enabled'), '');
-  console.log(`Taste enabled${global ? ' globally' : ' for this project'}.`);
+  console.log(`Taste enabled${isGlobal ? ' globally' : ' for this project'}.`);
   console.log('Claude will auto-apply your profile at every session start.');
+
+  if (!noStopHook) {
+    const registered = registerStopHook();
+    if (registered) {
+      console.log('Stop hook registered — Claude will auto-capture style decisions after each response.');
+    }
+  }
 }
 
 function off() {
   const fs = require('fs');
   const path = require('path');
-  const global = args.includes('--global');
-  const flag = path.join(global ? process.env.HOME : process.cwd(), '.taste', 'enabled');
+  const isGlobal = args.includes('--global');
+  const flag = path.join(isGlobal ? process.env.HOME : process.cwd(), '.taste', 'enabled');
   if (fs.existsSync(flag)) {
     fs.unlinkSync(flag);
-    console.log(`Taste disabled${global ? ' globally' : ' for this project'}.`);
+    console.log(`Taste disabled${isGlobal ? ' globally' : ' for this project'}.`);
   } else {
     console.log('Taste is already off.');
   }
+  removeStopHook();
+}
+
+function registerStopHook() {
+  const fs = require('fs');
+  const path = require('path');
+  const settingsPath = path.join(process.env.HOME, '.claude-shared', 'settings.json');
+  if (!fs.existsSync(settingsPath)) return false;
+
+  let settings;
+  try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch { return false; }
+
+  if (!settings.hooks) settings.hooks = {};
+  if (!settings.hooks.Stop) settings.hooks.Stop = [];
+
+  const hookCmd = '~/.claude-office-pro/hooks/taste-stop.sh';
+  const already = settings.hooks.Stop.some(entry =>
+    entry.hooks?.some(h => h.command === hookCmd)
+  );
+  if (already) return false;
+
+  settings.hooks.Stop.push({
+    hooks: [{
+      type: 'command',
+      command: hookCmd,
+      timeout: 10,
+      async: true,
+    }],
+  });
+
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  return true;
+}
+
+function removeStopHook() {
+  const fs = require('fs');
+  const path = require('path');
+  const settingsPath = path.join(process.env.HOME, '.claude-shared', 'settings.json');
+  if (!fs.existsSync(settingsPath)) return;
+
+  let settings;
+  try { settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')); } catch { return; }
+
+  if (!settings.hooks?.Stop) return;
+  const hookCmd = '~/.claude-office-pro/hooks/taste-stop.sh';
+  settings.hooks.Stop = settings.hooks.Stop.filter(entry =>
+    !entry.hooks?.some(h => h.command === hookCmd)
+  );
+  if (!settings.hooks.Stop.length) delete settings.hooks.Stop;
+  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+  console.log('Stop hook removed from settings.');
 }
 
 function status() {
@@ -208,23 +268,287 @@ function status() {
   });
 }
 
+function reviewPr() {
+  const { execSync } = require('child_process');
+  const http = require('http');
+  const path = require('path');
+
+  // Check gh CLI
+  try { execSync('gh --version', { stdio: 'pipe' }); } catch {
+    console.error('Error: gh CLI not found. Install from https://cli.github.com');
+    process.exit(1);
+  }
+
+  const prArg = args.find(a => !a.startsWith('--'));
+  let prNumber;
+
+  if (prArg) {
+    prNumber = prArg.replace(/.*\//, ''); // handle URLs or plain numbers
+  } else {
+    try {
+      const data = JSON.parse(execSync('gh pr view --json number', { stdio: 'pipe' }).toString());
+      prNumber = data.number;
+    } catch {
+      console.error('Error: not on a PR branch. Pass a PR number: npx taste-skill review-pr 42');
+      process.exit(1);
+    }
+  }
+
+  console.log(`Fetching PR #${prNumber}...`);
+  let prData;
+  try {
+    prData = JSON.parse(execSync(`gh pr view ${prNumber} --json reviews,comments,reviewThreads`, { stdio: 'pipe' }).toString());
+  } catch (e) {
+    console.error(`Error fetching PR: ${e.message}`);
+    process.exit(1);
+  }
+
+  const comments = [];
+  (prData.reviews || []).forEach(r => { if (r.body) comments.push({ body: r.body, author: r.author?.login || 'reviewer' }); });
+  (prData.comments || []).forEach(c => { if (c.body) comments.push({ body: c.body, author: c.author?.login || 'reviewer' }); });
+  (prData.reviewThreads || []).forEach(t => {
+    (t.comments || []).forEach(c => { if (c.body) comments.push({ body: c.body, author: c.author?.login || 'reviewer' }); });
+  });
+
+  const signals = extractPrSignals(comments, prNumber);
+
+  if (!signals.length) {
+    console.log('No style/pattern signals found in PR comments.');
+    return;
+  }
+
+  const port = process.env.TASTE_PORT || '3247';
+  let sent = 0;
+  let failed = 0;
+
+  const postAll = signals.map(s => postSuggestion(s, port));
+  Promise.all(postAll).then(results => {
+    results.forEach(ok => ok ? sent++ : failed++);
+    console.log(`${sent} suggestion${sent !== 1 ? 's' : ''} sent from PR #${prNumber}.`);
+    if (failed) console.log(`${failed} failed (server may be offline — run: npx taste-skill serve)`);
+    console.log(`Review at: http://localhost:${port}`);
+  });
+}
+
+function extractPrSignals(comments, prNumber) {
+  const SIGNALS = [/\bprefer\b/i, /\buse\b.{0,40}\binstead\b/i, /\bavoid\b/i, /\balways\b/i, /\bnever\b/i, /\binstead of\b/i, /\brather than\b/i, /\bconvention\b/i, /\bpattern\b/i];
+  const signals = [];
+  const seen = new Set();
+
+  for (const { body, author } of comments) {
+    const sentences = body.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(s => s.length > 20 && !s.endsWith('?'));
+    for (const sentence of sentences) {
+      if (!SIGNALS.some(re => re.test(sentence))) continue;
+      const clean = sentence.replace(/[*_`#]/g, '').replace(/\s+/g, ' ').trim();
+      if (clean.length < 15 || seen.has(clean)) continue;
+      seen.add(clean);
+      signals.push({
+        rule: clean,
+        section: guessSectionFromText(clean),
+        trigger: 'pr-review',
+        source: `PR #${prNumber} — @${author}: "${clean.slice(0, 80)}"`,
+        source_type: 'pr-review',
+        cwd: process.cwd(),
+      });
+      if (signals.length >= 20) return signals;
+    }
+  }
+  return signals;
+}
+
+function guessSectionFromText(text) {
+  if (/\bname[sd]?\b|\bnaming\b|\bcamelCase\b|\bPascalCase\b|\bsnake_case\b/i.test(text)) return 'Naming';
+  if (/\bimport\b|\bexport\b/i.test(text)) return 'Imports';
+  if (/\btest\b|\bspec\b|\bdescribe\b/i.test(text)) return 'Testing';
+  if (/\bcomment\b|\bdoc\b/i.test(text)) return 'Comments';
+  if (/\bcomponent\b|\bfunction\b|\barrow\b|\bstate\b|\basync\b|\berror\b/i.test(text)) return 'Patterns';
+  return 'Code Style';
+}
+
+function postSuggestion(payload, port) {
+  return new Promise(resolve => {
+    const body = JSON.stringify(payload);
+    const req = require('http').request({
+      hostname: 'localhost', port: parseInt(port, 10),
+      path: '/api/suggest', method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    }, res => { res.resume(); resolve(res.statusCode < 300); });
+    req.on('error', () => resolve(false));
+    req.setTimeout(5000, () => { req.destroy(); resolve(false); });
+    req.write(body);
+    req.end();
+  });
+}
+
+function targets() {
+  const fs = require('fs');
+  const path = require('path');
+  const tastePath = process.env.TASTE_PATH || path.join(process.cwd(), '.taste');
+
+  const list = [
+    { type: 'taste-profile', label: 'taste-profile', path: path.join(tastePath, 'profile.md') },
+    { type: 'root-claude-md', label: 'root-claude-md', path: path.join(process.cwd(), 'CLAUDE.md') },
+    { type: 'global-claude-md', label: 'global-claude-md', path: path.join(process.env.HOME, '.claude-shared', 'CLAUDE.md') },
+  ];
+
+  // Find SKILL.md files
+  const skillDirs = [
+    path.join(process.cwd(), '.claude', 'skills'),
+    path.join(process.env.HOME, '.claude', 'skills'),
+    path.join(process.env.HOME, '.claude-shared', 'skills'),
+    path.join(process.env.HOME, '.claude-office-pro', 'skills'),
+  ];
+  for (const dir of skillDirs) {
+    if (!fs.existsSync(dir)) continue;
+    try {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const p = path.join(dir, entry.name, 'SKILL.md');
+        list.push({ type: 'skill-md', label: `skill:${entry.name}`, path: p });
+      }
+    } catch {}
+  }
+
+  console.log('\nTarget files:\n');
+  const maxLabel = Math.max(...list.map(t => t.label.length));
+  for (const t of list) {
+    const exists = fs.existsSync(t.path);
+    const status = exists ? '[exists]' : '[missing]';
+    const hint = !exists && t.type !== 'skill-md' ? '  ← npx taste-skill init-claude-md' : '';
+    console.log(`  ${t.label.padEnd(maxLabel + 2)} ${t.path.replace(process.env.HOME, '~')}  ${status}${hint}`);
+  }
+  console.log('');
+}
+
+function initClaudeMd() {
+  const fs = require('fs');
+  const path = require('path');
+  const isGlobal = args.includes('--global');
+  const filePath = isGlobal
+    ? path.join(process.env.HOME, '.claude-shared', 'CLAUDE.md')
+    : path.join(process.cwd(), 'CLAUDE.md');
+
+  if (fs.existsSync(filePath)) {
+    console.log(`CLAUDE.md already exists at ${filePath}`);
+    console.log('Edit it directly to add rules.');
+    process.exit(0);
+  }
+
+  const content = `# CLAUDE.md
+<!-- Organization coding standards. Claude reads this and follows every rule. -->
+<!-- Managed by taste-skill. Commit to share with your team. -->
+
+## Naming
+- Variables/functions: camelCase
+- Components: PascalCase
+- Files: kebab-case
+- Constants: UPPER_SNAKE_CASE
+
+## Code Style
+- (add rules via taste-skill review server or taste train)
+
+## Patterns
+- (add rules via taste-skill review server or taste train)
+
+## Testing
+- (add rules via taste-skill review server or taste train)
+
+## Imports
+- Order: external → internal → types
+- Prefer named exports
+
+## Comments
+- Style: minimal, explain WHY not WHAT
+`;
+
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, content);
+  console.log(`✓ Created ${filePath.replace(process.env.HOME, '~')}`);
+  console.log('Edit it to set your org standards, or accept suggestions via: npx taste-skill serve');
+}
+
+function sync() {
+  const fs = require('fs');
+  const path = require('path');
+  const pendingFile = path.join(process.cwd(), '.taste', 'pending-suggestions.md');
+
+  if (!fs.existsSync(pendingFile)) {
+    console.log('No offline suggestions to sync (.taste/pending-suggestions.md not found).');
+    return;
+  }
+
+  const content = fs.readFileSync(pendingFile, 'utf8').trim();
+  if (!content) {
+    console.log('No suggestions to sync.');
+    return;
+  }
+
+  // Parse ## Section — Rule blocks
+  const blocks = content.split(/^## /m).filter(Boolean);
+  const suggestions = [];
+
+  for (const block of blocks) {
+    const lines = block.trim().split('\n');
+    const header = lines[0]; // "Section — rule description"
+    const match = header.match(/^(.+?)\s*—\s*(.+)$/);
+    if (!match) continue;
+    const section = match[1].trim();
+    const rule = match[2].trim();
+    let example = null;
+    let source = null;
+    for (const line of lines.slice(1)) {
+      if (line.startsWith('- Example:')) example = line.replace('- Example:', '').replace(/`/g, '').trim();
+      if (line.startsWith('- Source:')) source = line.replace('- Source:', '').trim();
+    }
+    suggestions.push({ rule, section, example, source, trigger: 'passive', source_type: 'manual', cwd: process.cwd() });
+  }
+
+  if (!suggestions.length) {
+    console.log('Could not parse any suggestions from pending-suggestions.md.');
+    return;
+  }
+
+  const port = process.env.TASTE_PORT || '3247';
+  console.log(`Syncing ${suggestions.length} suggestions to http://localhost:${port}...`);
+
+  Promise.all(suggestions.map(s => postSuggestion(s, port))).then(results => {
+    const sent = results.filter(Boolean).length;
+    if (sent === suggestions.length) {
+      fs.writeFileSync(pendingFile, '');
+      console.log(`✓ ${sent} suggestions synced. Pending file cleared.`);
+    } else {
+      console.log(`${sent}/${suggestions.length} sent. Server may be offline — run: npx taste-skill serve`);
+    }
+  });
+}
+
 function help() {
   console.log(`
   taste-skill — self-hosted personalized coding preferences
 
   Commands:
-    serve [--port N]   Start review server (default port 3247)
-    init               Analyze codebase and generate .taste/profile.md
-    on [--global]      Enable auto-apply for this project (or globally)
-    off [--global]     Disable auto-apply
-    status             Check if server is running and show pending count
+    serve [--port N]             Start review server (default port 3247)
+    init                         Analyze codebase and generate .taste/profile.md
+    on [--global] [--no-stop-hook]  Enable auto-apply (registers Stop hook by default)
+    off [--global]               Disable auto-apply (removes Stop hook)
+    status                       Check if server is running and show pending count
+    review-pr [number|url]       Import style signals from a GitHub PR's review comments
+    targets                      List all known target files and their status
+    init-claude-md [--global]    Create a starter CLAUDE.md at project root or ~/.claude-shared/
+    sync                         Flush .taste/pending-suggestions.md to the review server
 
   Usage with Claude Code:
     1. npx taste-skill init          (generate initial profile)
-    2. npx taste-skill on            (enable auto-apply for this project)
+    2. npx taste-skill on            (enable auto-apply + Stop hook)
     3. npx taste-skill serve         (start review server)
     4. Open http://localhost:3247    (review suggestions)
     5. In Claude Code: "taste train" (run guided training session)
+
+  Self-evaluation loop:
+    - After each Claude response, style decisions are auto-captured (Stop hook)
+    - After a code review session: npx taste-skill review-pr <PR>
+    - Accept suggestions → choose target file in the dashboard dropdown
+    - Approved rules are written to .taste/profile.md, CLAUDE.md, or a SKILL.md
   `);
 }
 
